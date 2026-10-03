@@ -1,0 +1,230 @@
+/*!
+  Intro / preloader — the opening sequence.
+
+  A full-bleed overlay that plays once on load, then hands the screen back.
+  Motion lives in Intro.jsx; this file is only geometry.
+
+  INITIAL STATE — WHY EVERY VALUE IS 0
+  The image must be 100% invisible before the timeline runs, or a fast first
+  paint flashes a half-formed frame. Four properties all guard that:
+    width: 0        the box collapses to nothing
+    transform:      scaleX(0)
+    opacity: 0      and it is invisible even if the box were not
+    overflow: hidden  and the img cannot spill out of the collapsed box
+  Intro.jsx overrides all four with gsap.set() so the animation and the
+  stylesheet can never disagree about the start state.
+
+  Two details that matter:
+  - No border on the frame. A 2px border would keep a 4px sliver visible even
+    at width: 0 (border-box clamps to the borders), which reads as a "slice"
+    between the two words. The frame uses an inset box-shadow instead, which
+    paints inside the box and affects no layout.
+  - The frame is written as `transform: scaleX(0)`, not the `scale` property.
+    GSAP animates scaleX through `transform`, so a stylesheet `scale` would
+    still apply and composite with it, pinning the frame at zero.
+
+  THE FRAMING TRICK
+  The two halves must end flush against the left and right edges of the image,
+  and the push has to track the image as it grows. A centred flex row cannot
+  do this when the halves are different widths — centring shifts the inner
+  edges by (leftWidth - rightWidth) / 2, so they can never *both* land on the
+  image. So the row is built to make the match structural instead:
+
+      .preloader__half--left   flex: 1 1 0   justify-content: flex-end
+      .preloader__figure       flex: 0 0 auto   <- the only sized item
+      .preloader__half--right  flex: 1 1 0   justify-content: flex-start
+
+  Both halves share an identical basis of 0, so the frame is always exactly
+  centred and the halves' inner edges always sit at (100% - frame) / 2 and
+  (100% + frame) / 2. Animating the frame's width therefore pushes each half by
+  half that width and lands both exactly on the image's edges — for any name,
+  any font size, any viewport, with nothing to measure and nothing to
+  recompute on resize. One tween does the unfold and the push together.
+
+  The .split-* classes come from lib/splitText.js. The clip on the mask is
+  what makes the bottom-up letter reveal work: a character offset by
+  yPercent: 100 is only hidden while something clips it.
+*/
+
+.preloader {
+  /* Single source of truth for the frame size. The figure animates *to* this,
+     and the img is laid out at this width from the start, so the img's
+     offsetWidth is the resolved end point the animation needs. */
+  --intro-figure-w: clamp(11rem, 22vw, 26rem);
+  --intro-figure-h: clamp(6.5rem, 14.5vw, 17rem);
+
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-preloader);
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  color: var(--fg);
+  /* The overlay slides fully off-screen on exit; this catches any bleed. */
+  overflow: hidden;
+}
+
+.preloader__stage {
+  width: 100%;
+  padding-inline: var(--gutter);
+}
+
+/* ==================================
+   NAME ROW — left half | frame | right half
+   ================================== */
+
+.preloader__name {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  font-family: var(--font-sans);
+  /* Sized so the two halves plus the frame always fit without colliding.
+     Narrow viewports step down further below. */
+  font-size: clamp(2.75rem, 6.5vw, 6.5rem);
+  font-weight: var(--fw-black);
+  line-height: 1;
+  letter-spacing: var(--track-display);
+  text-transform: uppercase;
+}
+
+.preloader__half {
+  /* Equal, content-independent basis — see THE FRAMING TRICK above. */
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* With the frame collapsed to zero width these two meet with no gap at all,
+   so the name reads as one continuous line. */
+.preloader__half--left {
+  justify-content: flex-end;
+}
+
+.preloader__half--right {
+  justify-content: flex-start;
+}
+
+/* ==================================
+   FRAME — starts collapsed, unfolds into the image
+   ================================== */
+
+.preloader__figure {
+  /* The only sized item in the row, so it stays exactly centred. flex-basis
+     resolves to `width`, so animating width animates the flex layout too. */
+  flex: 0 0 auto;
+  position: relative;
+
+  /* --- the hidden start state --- */
+  width: 0;
+  height: var(--intro-figure-h);
+  opacity: 0;
+  transform: scaleX(0);
+  overflow: hidden;
+
+  margin: 0;
+  background: var(--surface);
+  /* Inset so it never affects layout — a border would not collapse to 0. */
+  box-shadow: inset 0 0 0 var(--bw-thick) var(--border-strong);
+}
+
+.preloader__img {
+  /* Laid out at the frame's full width from the start, so offsetWidth is the
+     resolved end point even while the frame is collapsed. */
+  position: absolute;
+  top: 0;
+  left: 50%;
+  /* CSS translate, leaving `transform` free for GSAP's scale. */
+  translate: -50% 0;
+  width: var(--intro-figure-w);
+  height: 100%;
+  /* Opts out of the global `img { max-width: 100% }` reset in index.css.
+     That clamp resolves against the containing block — which is this frame, at
+     width: 0 — so it would pin the image to 0px and the measured end point
+     would collapse to zero, leaving the unfold with nothing to animate. */
+  max-width: none;
+  object-fit: cover;
+  will-change: transform, opacity;
+}
+
+/* ==================================
+   SPLIT PRIMITIVES
+   ================================== */
+
+.split-word {
+  display: inline-flex;
+  align-items: flex-start;
+}
+
+.split-mask {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: top;
+  /* Inter's ascender + descender exceed 1em, so a bare mask would shave the
+     tops and tails off the glyphs. Padding buys that room back; the negative
+     margin keeps the layout height identical. No horizontal padding, so
+     letters stay flush against each other. */
+  padding: 0.1em 0;
+  margin: -0.1em 0;
+}
+
+.split-char {
+  display: inline-block;
+  line-height: 1;
+  will-change: transform;
+}
+
+/* ==================================
+   META — one line of deadpan context
+   ================================== */
+
+.preloader__meta {
+  position: absolute;
+  left: var(--gutter);
+  bottom: var(--gutter);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.preloader__meta::before {
+  content: '';
+  width: 0.5em;
+  height: 0.5em;
+  background: var(--accent);
+}
+
+/* Phones: display size and frame shrink together, or name + frame exceed the
+   viewport and collide. */
+@media (max-width: 30rem) {
+  .preloader {
+    --intro-figure-w: clamp(5rem, 26vw, 9rem);
+    --intro-figure-h: clamp(3rem, 15vw, 5.5rem);
+  }
+
+  .preloader__name {
+    font-size: clamp(1.5rem, 5.5vw, 2.25rem);
+  }
+}
+
+/* Landscape phones: very little height, so cap the frame harder. */
+@media (max-height: 26rem) {
+  .preloader {
+    --intro-figure-h: 8rem;
+  }
+}
+
+/* No JS-driven motion available: skip straight to the finished state instead
+   of animating, and drop the overlay. Intro.jsx also bails on this query. */
+@media (prefers-reduced-motion: reduce) {
+  .preloader {
+    display: none;
+  }
+}

@@ -4,6 +4,10 @@
   Anchor navigation goes through here so programmatic scrolls and user
   scrolling share one engine (no fighting over scroll position), and so the
   scroll-spy only ever has to observe real scroll events.
+
+  Also the only place that locks and unlocks the page, which the intro overlay
+  needs: Lenis is created by a later effect, so the lock is remembered as a
+  flag and applied to whichever instance ends up existing.
 */
 
 import Lenis from 'lenis';
@@ -12,10 +16,39 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 
 let instance = null;
 let offset = 0;
+let locked = false;
+let bodyOverflow = '';
 
 /** Clearance for the fixed header when scrolling to a section. */
 export function setScrollOffset(px) {
   offset = px;
+}
+
+/**
+ * Freeze the page — used by the intro so a stray wheel gesture cannot scroll
+ * the site out from under the overlay.
+ *
+ * The lock is remembered, not just applied: the intro mounts before
+ * SmoothScroll, so Lenis usually does not exist yet when this is called. The
+ * flag lets initSmoothScroll() stop the instance it creates.
+ */
+export function lockScroll() {
+  if (locked) return;
+  locked = true;
+  bodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
+  instance?.stop();
+}
+
+export function unlockScroll() {
+  if (!locked) return;
+  locked = false;
+  document.body.style.overflow = bodyOverflow;
+  instance?.start();
+}
+
+export function isScrollLocked() {
+  return locked;
 }
 
 export function getLenis() {
@@ -46,6 +79,9 @@ export function initSmoothScroll() {
     instance?.destroy();
     instance = null;
   };
+
+  // A lock requested before Lenis existed applies to this instance too.
+  if (locked) instance.stop();
 
   return instance;
 }
